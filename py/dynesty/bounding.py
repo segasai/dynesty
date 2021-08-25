@@ -317,19 +317,20 @@ class Ellipsoid:
         self.axes = ell.axes
         self.paxes = ell.paxes
         self.expand = ell.expand
-
         # Use bootstrapping to determine the volume expansion factor.
         if bootstrap > 0:
-
+            bootstrap = min(bootstrap, len(points))
             # If provided, compute bootstraps in parallel using a pool.
             if pool is None:
                 M = map
             else:
                 M = pool.map
             multis = [False for it in range(bootstrap)]
+            point_ids = rstate.permutation(len(points)) % bootstrap
+            point_ids_list = [point_ids for i in range(bootstrap)]
+            seq_ids = range(bootstrap)
             ps = [points for it in range(bootstrap)]
-            seeds = get_seed_sequence(rstate, bootstrap)
-            args = zip(multis, ps, seeds)
+            args = zip(multis, point_ids_list, seq_ids, ps)
             expands = list(M(_ellipsoid_bootstrap_expand, args))
 
             # Conservatively set the expansion factor to be the maximum
@@ -607,16 +608,19 @@ class MultiEllipsoid:
 
         # Use bootstrapping to determine the volume expansion factor.
         if bootstrap > 0:
+            bootstrap = min(bootstrap, len(points))
 
             # If provided, compute bootstraps in parallel using a pool.
             if pool is None:
                 M = map
             else:
                 M = pool.map
+            point_ids = rstate.permutation(len(points)) % bootstrap
             multis = [True for it in range(bootstrap)]
+            point_ids_list = [point_ids for it in range(bootstrap)]
+            seq_id = range(bootstrap)
             ps = [points for it in range(bootstrap)]
-            seeds = get_seed_sequence(rstate, bootstrap)
-            args = zip(multis, ps, seeds)
+            args = zip(multis, point_ids_list, seq_id, ps)
             expands = list(M(_ellipsoid_bootstrap_expand, args))
 
             # Conservatively set the expansion factor to be the maximum
@@ -1525,23 +1529,10 @@ def _ellipsoid_bootstrap_expand(args):
     """
 
     # Unzipping.
-    multi, points, rseed = args
-    rstate = get_random_generator(rseed)
+    multi, point_ids, seq_id, points = args
     npoints, ndim = points.shape
 
-    # Resampling.
-    idxs = rstate.integers(npoints, size=npoints)
-    idx_in = np.unique(idxs)  # selected objects
-    sel = np.zeros(npoints, dtype=bool)
-    sel[idx_in] = True
-    # in the crazy case of not having selected more than one
-    # point I just arbitrary add points to have at least two in idx_in
-    # and at least 1 in idx_out
-    n_in = sel.sum()
-    if n_in < 2:
-        sel[:2] = True
-    if n_in > npoints - 1:
-        sel[0] = False
+    sel = point_ids != seq_id
     points_in, points_out = points[sel], points[~sel]
 
     # Compute bounding ellipsoid.
